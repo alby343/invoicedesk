@@ -25,7 +25,7 @@ def ai_extract(text):
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         return None
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
     body = json.dumps({
         "contents": [{"parts": [{"text": PROMPT + text[:6000]}]}],
         "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
@@ -35,7 +35,7 @@ def ai_extract(text):
         headers={"Content-Type": "application/json", "x-goog-api-key": key},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.load(resp)
         return json.loads(data["candidates"][0]["content"]["parts"][0]["text"])
     except Exception as e:                       # the process must never break because the AI did
