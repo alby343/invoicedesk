@@ -3,6 +3,7 @@ from loaders import load_pos
 from vendors import load_vendors, identify_vendor, norm
 import checks
 import db
+import llm
 
 STAGE_NAMES = {
     "read": "Read document",
@@ -40,9 +41,33 @@ def process(path, filename):
 
     yield event("extract", "running")
     fields = extract_fields(text)
+
+    # AI reads only what the rules could not find. The arithmetic check below then verifies the numbers.
+    ai_filled = []
+    gaps = [k for k in ("invoice_no", "po", "subtotal", "tax", "total") if fields[k] is None]
+    if gaps and llm.ai_available():
+        yield event("extract", "running", "Rules missed some fields. Asking the AI to read the document...")
+        ai = llm.ai_extract(text) or {}
+        for k in gaps:
+            v = ai.get(k)
+            if v in (None, ""):
+                continue
+            if k in ("subtotal", "tax", "total"):
+                try:
+                    v = float(str(v).replace(",", ""))
+                except ValueError:
+                    continue
+            fields[k] = v
+            ai_filled.append(k)
+
     f = checks.check_missing(fields)
+    if ai_filled:
+        f.append(checks.finding("info", "AI_EXTRACTED",
+                                f"The AI read these fields because the rules could not: {', '.join(ai_filled)}. The arithmetic check verifies them."))
     all_findings += f
     shown = f"invoice {fields['invoice_no']}, PO {fields['po']}, total {fields['total']}"
+    if ai_filled:
+        shown += f"  [AI filled: {', '.join(ai_filled)}]"
     yield event("extract", stage_status(f), shown, f)
 
     yield event("validate", "running")
