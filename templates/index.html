@@ -140,8 +140,7 @@ document.getElementById("reset").onclick = async () => {
 const DEMO_ORDER = [
   "01_clean_happy_path.pdf", "02_within_tolerance.pdf", "03_split_po_part1.pdf",
   "04_split_po_part2.pdf", "05_split_po_overbill.pdf", "06_scanned_image_only.pdf",
-  "07_duplicate_resubmission.pdf", "10_lookalike_vendor.pdf", "11_math_mismatch.pdf"
-];
+  "07_duplicate_resubmission.pdf", "10_lookalike_vendor.pdf", "11_math_mismatch.pdf","12_unusual_wording.pdf",];
 document.getElementById("runAll").onclick = async () => {
   const available = [...document.querySelectorAll("#sample option")].map(o => o.value);
   await fetch("/reset", { method: "POST" });
