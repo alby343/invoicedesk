@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>InvoiceDesk</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f4f6fa; margin: 0; color: #172033; }
+  header { background: #fff; padding: 14px 28px; border-bottom: 1px solid #dde3ee; font-size: 20px; font-weight: 700; }
+  header span { color: #1f5eff; }
+  main { max-width: 1000px; margin: 24px auto; padding: 0 20px; display: grid; grid-template-columns: 300px 1fr; gap: 20px; }
+  .card { background: #fff; border: 1px solid #dde3ee; border-radius: 12px; padding: 18px; }
+  h3 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #6b778c; }
+  select, button, input[type=file] { width: 100%; padding: 9px; margin-bottom: 10px; font-size: 14px; }
+  button { background: #1f5eff; color: #fff; border: 0; border-radius: 8px; cursor: pointer; font-weight: 600; }
+  button.light { background: #fff; color: #172033; border: 1px solid #dde3ee; }
+  button:disabled { opacity: .5; cursor: wait; }
+  .stage { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid #eef1f6; opacity: .45; }
+  .stage:first-child { border-top: 0; }
+  .stage.running, .stage.ok, .stage.review, .stage.hold, .stage.reject { opacity: 1; }
+  .dot { width: 24px; height: 24px; border-radius: 50%; background: #e3e8f0; flex: none; display: grid; place-items: center; font-weight: 800; font-size: 13px; }
+  .running .dot { background: #fff; border: 3px solid #cfdcff; border-top-color: #1f5eff; animation: spin .8s linear infinite; }
+  .ok .dot { background: #dff5e8; color: #14804a; }
+  .review .dot { background: #fff0d6; color: #a15c00; }
+  .hold .dot { background: #ffe5d2; color: #b34700; }
+  .reject .dot { background: #fde3e4; color: #c0262d; }
+  .detail { color: #6b778c; font-size: 13px; margin-top: 2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .verdict { margin-top: 16px; padding: 16px; border-radius: 10px; display: none; }
+  .verdict b { font-size: 22px; display: block; margin-bottom: 4px; }
+  .verdict.APPROVE { background: #dff5e8; color: #14804a; }
+  .verdict.REVIEW { background: #fff0d6; color: #a15c00; }
+  .verdict.HOLD { background: #ffe5d2; color: #b34700; }
+  .verdict.REJECT { background: #fde3e4; color: #c0262d; }
+  .verdict span { color: #172033; font-size: 14px; }
+</style>
+</head>
+<body>
+<header>Invoice<span>Desk</span>
+  <a href="/" style="margin-left:30px;font-size:14px;color:#1f5eff;text-decoration:none">Process</a>
+  <a href="/dashboard" style="margin-left:16px;font-size:14px;color:#6b778c;text-decoration:none">Dashboard</a>
+</header>
+<main>
+  <div class="card">
+    <h3>Choose an invoice</h3>
+    <select id="sample">
+      {% for s in samples %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <button id="runSample">Run sample</button>
+    <h3 style="margin-top:18px">Or upload a PDF</h3>
+    <input type="file" id="file" accept="application/pdf">
+    <button id="runFile">Run uploaded file</button>
+    <button id="runAll" style="background:#14804a">Reset &amp; run all samples</button>
+    <button class="light" id="reset">Reset demo data</button>
+  </div>
+
+  <div class="card">
+    <h3>Live run <span id="title" style="text-transform:none;letter-spacing:0;color:#172033"></span></h3>
+    <div id="stages"></div>
+    <div class="verdict" id="verdict"></div>
+  </div>
+</main>
+
+<script>
+const STAGES = [
+  ["read", "Read document"], ["extract", "Extract fields"], ["validate", "Validate arithmetic"],
+  ["vendor", "Verify vendor"], ["duplicate", "Duplicate check"], ["po", "Match purchase order"],
+  ["amount", "Check amount"], ["decision", "Decide"]
+];
+const ICON = { ok: "✓", review: "!", hold: "⏸", reject: "✕" };
+
+function drawStages() {
+  document.getElementById("stages").innerHTML = STAGES.map(([id, name]) =>
+    `<div class="stage" id="st-${id}"><div class="dot"></div><div><b>${name}</b><div class="detail"></div></div></div>`
+  ).join("");
+  const v = document.getElementById("verdict");
+  v.style.display = "none";
+}
+
+function showEvent(ev) {
+  if (ev.status === "final") {
+    const v = document.getElementById("verdict");
+    v.className = "verdict " + ev.decision;
+    v.innerHTML = `<b>${ev.decision}</b><span></span>`;
+    v.querySelector("span").textContent = ev.detail;
+    v.style.display = "block";
+    const cls = { APPROVE: "ok", REVIEW: "review", HOLD: "hold", REJECT: "reject" }[ev.decision];
+    const last = document.getElementById("st-decision");
+    last.className = "stage " + cls;
+    last.querySelector(".dot").textContent = ICON[cls];
+    last.querySelector(".detail").textContent = ev.decision;
+    return;
+  }
+  const row = document.getElementById("st-" + ev.stage);
+  row.className = "stage " + ev.status;
+  row.querySelector(".dot").textContent = ICON[ev.status] || "";
+  row.querySelector(".detail").textContent = ev.detail || "";
+}
+
+async function run(formData, label) {
+  document.querySelectorAll("button").forEach(b => b.disabled = true);
+  document.getElementById("title").textContent = "· " + label;
+  drawStages();
+  const response = await fetch("/run", { method: "POST", body: formData });
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let i;
+    while ((i = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, i).trim();
+      buffer = buffer.slice(i + 1);
+      if (line) showEvent(JSON.parse(line));
+    }
+  }
+  document.querySelectorAll("button").forEach(b => b.disabled = false);
+}
+
+document.getElementById("runSample").onclick = () => {
+  const fd = new FormData();
+  const name = document.getElementById("sample").value;
+  fd.append("sample", name);
+  run(fd, name);
+};
+document.getElementById("runFile").onclick = () => {
+  const f = document.getElementById("file").files[0];
+  if (!f) return alert("Choose a PDF first.");
+  const fd = new FormData();
+  fd.append("file", f);
+  run(fd, f.name);
+};
+document.getElementById("reset").onclick = async () => {
+  await fetch("/reset", { method: "POST" });
+  drawStages();
+  alert("History cleared.");
+};
+// The order matters: 03 and 04 must run before 05, and 01 before 07.
+const DEMO_ORDER = [
+  "01_clean_happy_path.pdf", "02_within_tolerance.pdf", "03_split_po_part1.pdf",
+  "04_split_po_part2.pdf", "05_split_po_overbill.pdf", "06_scanned_image_only.pdf",
+  "07_duplicate_resubmission.pdf", "10_lookalike_vendor.pdf", "11_math_mismatch.pdf"
+];
+document.getElementById("runAll").onclick = async () => {
+  const available = [...document.querySelectorAll("#sample option")].map(o => o.value);
+  await fetch("/reset", { method: "POST" });
+  for (const name of DEMO_ORDER) {
+    if (!available.includes(name)) continue;
+    const fd = new FormData();
+    fd.append("sample", name);
+    await run(fd, name);
+    await new Promise(r => setTimeout(r, 1200));   // pause so each verdict can be read
+  }
+};
+drawStages();
+</script>
+</body>
+</html>

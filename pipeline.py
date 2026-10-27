@@ -1,0 +1,81 @@
+from extract import read_text, extract_fields
+from loaders import load_pos
+from vendors import load_vendors, identify_vendor, norm
+import checks
+import db
+
+STAGE_NAMES = {
+    "read": "Read document",
+    "extract": "Extract fields",
+    "validate": "Validate arithmetic",
+    "vendor": "Verify vendor",
+    "duplicate": "Duplicate check",
+    "po": "Match purchase order",
+    "amount": "Check amount",
+    "decision": "Decide",
+}
+
+
+def stage_status(findings):
+    """Worst severity of a stage's findings: ok, review, hold or reject."""
+    worst = max((checks.SEVERITY[f["severity"]] for f in findings), default=0)
+    return {0: "ok", 1: "ok", 2: "review", 3: "hold", 4: "reject"}[worst]
+
+
+def event(stage, status, detail="", findings=None):
+    return {"stage": stage, "title": STAGE_NAMES[stage], "status": status,
+            "detail": detail, "findings": findings or []}
+
+
+def process(path, filename):
+    """Run one invoice through every stage. Yields an event as each stage starts and finishes."""
+    db.init_db()
+    pos = load_pos("data/pos.csv")
+    vendors = load_vendors("data/vendors.csv")
+    all_findings = []
+
+    yield event("read", "running")
+    text = read_text(path)
+    yield event("read", "ok", f"{len(text)} characters read")
+
+    yield event("extract", "running")
+    fields = extract_fields(text)
+    f = checks.check_missing(fields)
+    all_findings += f
+    shown = f"invoice {fields['invoice_no']}, PO {fields['po']}, total {fields['total']}"
+    yield event("extract", stage_status(f), shown, f)
+
+    yield event("validate", "running")
+    f = checks.check_math(fields)
+    all_findings += f
+    yield event("validate", stage_status(f), f[0]["message"], f)
+
+    yield event("vendor", "running")
+    info = identify_vendor(text, vendors)
+    vendor_id = info["vendor"]["vendor_id"] if info["status"] == "approved" else None
+    f = checks.check_vendor(info, fields)
+    all_findings += f
+    yield event("vendor", stage_status(f), f[0]["message"], f)
+
+    yield event("duplicate", "running")
+    inv_key = norm(fields["invoice_no"])
+    f = checks.check_duplicate(db.find_duplicate(vendor_id, inv_key))
+    all_findings += f
+    yield event("duplicate", stage_status(f), f[0]["message"], f)
+
+    yield event("po", "running")
+    f = checks.check_po(fields, pos)
+    all_findings += f
+    yield event("po", stage_status(f), f[0]["message"], f)
+
+    yield event("amount", "running")
+    f = checks.check_balance(fields, pos, db.consumed(fields["po"]))
+    all_findings += f
+    yield event("amount", stage_status(f), f[0]["message"] if f else "Skipped: nothing to compare", f)
+
+    decision = checks.decide(all_findings)
+    db.save_run(filename, vendor_id, fields, inv_key, decision, all_findings)
+    problems = [x for x in all_findings if checks.SEVERITY[x["severity"]] >= 2]
+    reason = problems[0]["message"] if problems else "All checks passed."
+    yield {"stage": "decision", "title": STAGE_NAMES["decision"], "status": "final",
+           "decision": decision, "detail": reason, "findings": all_findings}

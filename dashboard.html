@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>InvoiceDesk Dashboard</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f4f6fa; margin: 0; color: #172033; }
+  header { background: #fff; padding: 14px 28px; border-bottom: 1px solid #dde3ee; font-size: 20px; font-weight: 700; }
+  header span { color: #1f5eff; }
+  header a { margin-left: 16px; font-size: 14px; text-decoration: none; font-weight: 400; }
+  main { max-width: 1200px; margin: 24px auto; padding: 0 20px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .tile { background: #fff; border: 1px solid #dde3ee; border-radius: 12px; padding: 14px; }
+  .tile .n { font-size: 26px; font-weight: 800; }
+  .tile .l { color: #6b778c; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: 1fr 320px; gap: 20px; align-items: start; }
+  .card { background: #fff; border: 1px solid #dde3ee; border-radius: 12px; padding: 18px; }
+  h3 { margin: 0 0 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #6b778c; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; color: #6b778c; padding: 6px; border-bottom: 1px solid #dde3ee; }
+  td { padding: 8px 6px; border-bottom: 1px solid #eef1f6; vertical-align: top; }
+  .pill { padding: 2px 9px; border-radius: 99px; font-size: 11px; font-weight: 800; }
+  .APPROVE { background: #dff5e8; color: #14804a; }
+  .REVIEW { background: #fff0d6; color: #a15c00; }
+  .HOLD { background: #ffe5d2; color: #b34700; }
+  .REJECT { background: #fde3e4; color: #c0262d; }
+  .reason { color: #6b778c; max-width: 380px; }
+  .bar { height: 8px; background: #e8edf5; border-radius: 99px; overflow: hidden; margin-top: 4px; }
+  .bar i { display: block; height: 100%; background: #1f5eff; }
+  .po { margin-bottom: 14px; font-size: 13px; }
+  .po small { color: #6b778c; }
+</style>
+</head>
+<body>
+<header>Invoice<span>Desk</span>
+  <a href="/" style="margin-left:30px;color:#6b778c">Process</a>
+  <a href="/dashboard" style="color:#1f5eff">Dashboard</a>
+</header>
+<main>
+  <div class="tiles" id="tiles"></div>
+  <div class="grid">
+    <div class="card">
+      <h3>Run history</h3>
+      <table>
+        <thead><tr><th>#</th><th>File</th><th>Vendor</th><th>Invoice</th><th>Total</th><th>PO</th><th>Decision</th><th>Why</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="card"><h3>PO usage (approved invoices)</h3><div id="util"></div></div>
+  </div>
+</main>
+
+<script>
+const money = n => n == null ? "—" : "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const esc = s => String(s ?? "—").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function load() {
+  const d = await (await fetch("/api/dashboard")).json();
+  const tile = (n, label, color) => `<div class="tile"><div class="n" style="color:${color || "#172033"}">${n}</div><div class="l">${label}</div></div>`;
+  document.getElementById("tiles").innerHTML =
+    tile(d.total, "invoices processed") + tile(d.auto_rate + "%", "approved automatically") +
+    tile(d.counts.APPROVE, "approved", "#14804a") + tile(d.counts.REVIEW, "need review", "#a15c00") +
+    tile(d.counts.HOLD, "on hold", "#b34700") + tile(d.counts.REJECT, "rejected", "#c0262d") +
+    tile(money(d.approved_value), "approved value") + tile(money(d.rejected_value), "rejected value", "#c0262d");
+
+  document.getElementById("rows").innerHTML = d.runs.length ? d.runs.map(r => `<tr>
+      <td>${r.id}</td><td>${esc(r.file)}</td><td>${esc(r.vendor)}</td><td>${esc(r.invoice_no)}</td>
+      <td>${money(r.total)}</td><td>${esc(r.po)}</td>
+      <td><span class="pill ${r.decision}">${r.decision}</span></td><td class="reason">${esc(r.reason)}</td></tr>`).join("")
+    : '<tr><td colspan="8" style="color:#6b778c;padding:20px">No runs yet. Process an invoice first.</td></tr>';
+
+  document.getElementById("util").innerHTML = d.util.map(u => `<div class="po">
+      <b>${u.po}</b> <small>${esc(u.vendor)}</small><br>
+      <small>${money(u.billed)} of ${money(u.amount)}</small>
+      <div class="bar"><i style="width:${Math.min(100, u.billed / u.amount * 100)}%"></i></div></div>`).join("");
+}
+load();
+setInterval(load, 3000);    // refresh every 3 seconds so new runs appear on their own
+</script>
+</body>
+</html>
