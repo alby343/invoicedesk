@@ -2,14 +2,32 @@ import os
 import re
 import pdfplumber
 import pytesseract
+from PIL import Image, ImageOps
 
 # Windows only: tell Python where Tesseract was installed. On a Linux server this path doesn't exist, so it is skipped.
 WIN_TESSERACT = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 if os.path.exists(WIN_TESSERACT):
     pytesseract.pytesseract.tesseract_cmd = WIN_TESSERACT
 
+
+IMAGE_TYPES = (".jpg", ".jpeg", ".png")
+
+
+def ocr_image(image):
+    """Clean up a photo a little, then read it with Tesseract."""
+    image = ImageOps.exif_transpose(image)        # phones store rotation in a tag; apply it
+    image = ImageOps.grayscale(image)             # colour only adds noise for OCR
+    image = ImageOps.autocontrast(image)          # stretch dark/washed-out photos
+    if image.width < 1600:                        # small images OCR badly; enlarge them
+        scale = 1600 / image.width
+        image = image.resize((1600, int(image.height * scale)))
+    return pytesseract.image_to_string(image, config="--psm 6")
+
+
 def read_text(path):
-    """Return the invoice text. Uses the PDF's text layer; falls back to OCR for scans."""
+    """Return the invoice text from a PDF (text layer, else OCR) or from a photo (OCR)."""
+    if str(path).lower().endswith(IMAGE_TYPES):
+        return ocr_image(Image.open(path))
     with pdfplumber.open(path) as pdf:
         page = pdf.pages[0]
         text = page.extract_text() or ""
