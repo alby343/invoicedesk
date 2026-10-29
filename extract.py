@@ -11,6 +11,7 @@ if os.path.exists(WIN_TESSERACT):
 
 
 IMAGE_TYPES = (".jpg", ".jpeg", ".png")
+INVOICE_NO_PATTERN = r"(?:Invoice|Inv\.?)\s*(?:No\b\.?|Number|#)\s*:?\s*(\S+)"
 
 
 def ocr_image(image):
@@ -37,6 +38,36 @@ def read_text(path):
         return pytesseract.image_to_string(image, config="--psm 6")
 
 
+def page_text(page):
+    """Text of one PDF page: the text layer, or OCR when the page is only a picture."""
+    text = page.extract_text() or ""
+    if len(text.strip()) >= 40:
+        return text
+    return pytesseract.image_to_string(page.to_image(resolution=200).original, config="--psm 6")
+
+
+def read_documents(path):
+    """Return a list of texts, one per invoice. A PDF may hold several invoices back to back.
+
+    A page that shows an invoice number different from the one before it starts a new invoice.
+    A page with no invoice number (for example 'page 2 of 2') belongs to the invoice before it.
+    """
+    if str(path).lower().endswith(IMAGE_TYPES):
+        return [ocr_image(Image.open(path))]
+    groups = []          # each item: [invoice_number_or_None, [page texts]]
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            text = page_text(page)
+            number = find([INVOICE_NO_PATTERN], text)
+            if groups and (number is None or number == groups[-1][0]):
+                groups[-1][1].append(text)          # continuation of the current invoice
+                if groups[-1][0] is None:
+                    groups[-1][0] = number
+            else:
+                groups.append([number, [text]])     # a new invoice starts here
+    return ["\n".join(pages) for _, pages in groups] or [""]
+
+
 def find(patterns, text):
     """Try each pattern in order. Return the first captured value, or None."""
     for p in patterns:
@@ -58,7 +89,7 @@ def find_bank_last4(text):
 
 def extract_fields(text):
     return {
-        "invoice_no": find([r"(?:Invoice|Inv\.?)\s*(?:No\b\.?|Number|#)\s*:?\s*(\S+)"], text),
+        "invoice_no": find([INVOICE_NO_PATTERN], text),
         "po": find([r"\b(PO-\d+)\b"], text),
         "bank_last4": find_bank_last4(text),
         "subtotal": to_number(find([r"(?:Sub-?\s?total|Net Amount)\s*:?\s*\$?([\d,]+\.\d{2})"], text)),

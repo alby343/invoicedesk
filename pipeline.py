@@ -1,4 +1,4 @@
-from extract import read_text, extract_fields
+from extract import read_documents, extract_fields
 from loaders import load_pos
 from vendors import load_vendors, identify_vendor, norm
 import checks
@@ -29,14 +29,23 @@ def event(stage, status, detail="", findings=None):
 
 
 def process(path, filename):
-    """Run one invoice through every stage. Yields an event as each stage starts and finishes."""
+    """Run a file through every stage. A PDF holding several invoices is processed one invoice at a time."""
     db.init_db()
+    yield event("read", "running")
+    texts = read_documents(path)
+    for n, text in enumerate(texts, 1):
+        if len(texts) > 1:
+            yield {"stage": "batch", "index": n, "count": len(texts), "file": filename}
+        label = filename if len(texts) == 1 else f"{filename} (invoice {n} of {len(texts)})"
+        yield from process_one(text, label)
+
+
+def process_one(text, filename):
+    """Run one invoice's text through the checks. Yields an event as each stage starts and finishes."""
     pos = load_pos("data/pos.csv")
     vendors = load_vendors("data/vendors.csv")
     all_findings = []
 
-    yield event("read", "running")
-    text = read_text(path)
     yield event("read", "ok", f"{len(text)} characters read")
 
     yield event("extract", "running")
