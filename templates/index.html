@@ -48,8 +48,8 @@
       {% for s in samples %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
     </select>
     <button id="runSample">Run sample</button>
-    <h3 style="margin-top:18px">Or upload a PDF or photo</h3>
-    <input type="file" id="file" accept="application/pdf,image/png,image/jpeg">
+    <h3 style="margin-top:18px">Or upload a file</h3>
+    <input type="file" id="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.csv,.eml">
     <button id="runFile">Run uploaded file</button>
     <button id="runAll" style="background:#14804a">Reset &amp; run all samples</button>
     <button class="light" id="reset">Reset demo data</button>
@@ -144,7 +144,7 @@ document.getElementById("runSample").onclick = () => {
 };
 document.getElementById("runFile").onclick = () => {
   const f = document.getElementById("file").files[0];
-  if (!f) return alert("Choose a PDF or photo first.");
+  if (!f) return alert("Choose a file first.");
   const fd = new FormData();
   fd.append("file", f);
   run(fd, f.name);
