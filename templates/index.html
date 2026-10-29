@@ -32,6 +32,8 @@
   .verdict.HOLD { background: #ffe5d2; color: #b34700; }
   .verdict.REJECT { background: #fde3e4; color: #c0262d; }
   .verdict span { color: #172033; font-size: 14px; }
+  #summary { margin-top: 14px; font-size: 13px; }
+  #summary div { padding: 6px 0; border-top: 1px solid #eef1f6; }
 </style>
 </head>
 <body>
@@ -46,7 +48,7 @@
       {% for s in samples %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
     </select>
     <button id="runSample">Run sample</button>
-    <h3 style="margin-top:18px">Or upload a PDF</h3>
+    <h3 style="margin-top:18px">Or upload a PDF or photo</h3>
     <input type="file" id="file" accept="application/pdf,image/png,image/jpeg">
     <button id="runFile">Run uploaded file</button>
     <button id="runAll" style="background:#14804a">Reset &amp; run all samples</button>
@@ -57,6 +59,7 @@
     <h3>Live run <span id="title" style="text-transform:none;letter-spacing:0;color:#172033"></span></h3>
     <div id="stages"></div>
     <div class="verdict" id="verdict"></div>
+    <div id="summary"></div>
   </div>
 </main>
 
@@ -76,7 +79,15 @@ function drawStages() {
   v.style.display = "none";
 }
 
+let batchIndex = 0;
+
 function showEvent(ev) {
+  if (ev.stage === "batch") {              // a PDF with several invoices: start a fresh set of stages for each
+    batchIndex = ev.index;
+    drawStages();
+    document.getElementById("title").textContent = `· ${ev.file} (invoice ${ev.index} of ${ev.count})`;
+    return;
+  }
   if (ev.status === "final") {
     const v = document.getElementById("verdict");
     v.className = "verdict " + ev.decision;
@@ -88,6 +99,11 @@ function showEvent(ev) {
     last.className = "stage " + cls;
     last.querySelector(".dot").textContent = ICON[cls];
     last.querySelector(".detail").textContent = ev.decision;
+    if (batchIndex > 0) {                  // keep a running list of the results in this PDF
+      const row = document.createElement("div");
+      row.textContent = `Invoice ${batchIndex}: ${ev.decision}. ${ev.detail}`;
+      document.getElementById("summary").appendChild(row);
+    }
     return;
   }
   const row = document.getElementById("st-" + ev.stage);
@@ -99,6 +115,8 @@ function showEvent(ev) {
 async function run(formData, label) {
   document.querySelectorAll("button").forEach(b => b.disabled = true);
   document.getElementById("title").textContent = "· " + label;
+  batchIndex = 0;
+  document.getElementById("summary").innerHTML = "";
   drawStages();
   const response = await fetch("/run", { method: "POST", body: formData });
   const reader = response.body.getReader();
@@ -126,7 +144,7 @@ document.getElementById("runSample").onclick = () => {
 };
 document.getElementById("runFile").onclick = () => {
   const f = document.getElementById("file").files[0];
-  if (!f) return alert("Choose a PDF first.");
+  if (!f) return alert("Choose a PDF or photo first.");
   const fd = new FormData();
   fd.append("file", f);
   run(fd, f.name);
@@ -136,11 +154,14 @@ document.getElementById("reset").onclick = async () => {
   drawStages();
   alert("History cleared.");
 };
+
 // The order matters: 03 and 04 must run before 05, and 01 before 07.
 const DEMO_ORDER = [
   "01_clean_happy_path.pdf", "02_within_tolerance.pdf", "03_split_po_part1.pdf",
   "04_split_po_part2.pdf", "05_split_po_overbill.pdf", "06_scanned_image_only.pdf",
-  "07_duplicate_resubmission.pdf", "10_lookalike_vendor.pdf", "11_math_mismatch.pdf","12_unusual_wording.pdf",];
+  "07_duplicate_resubmission.pdf", "10_lookalike_vendor.pdf", "11_math_mismatch.pdf",
+  "12_unusual_wording.pdf"
+];
 document.getElementById("runAll").onclick = async () => {
   const available = [...document.querySelectorAll("#sample option")].map(o => o.value);
   await fetch("/reset", { method: "POST" });
